@@ -1,0 +1,971 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Magic Sensor - Interactive Games</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- MediaPipe Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <style>
+        /* ================= Base Styles & Camera ================= */
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; overflow-x: hidden; background-color: #0f172a; }
+        .video-container { position: relative; width: 100%; border-radius: 1rem; overflow: hidden; background-color: #000; aspect-ratio: 4/3; }
+        .input_video { display: none; }
+        .output_canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+
+        /* ================= Global Glassmorphism, Particles & 3D ================= */
+        /* Dynamic App Background */
+        .bg-glassy-app {
+            background: linear-gradient(-45deg, #0f172a, #1e1b4b, #0f172a, #064e3b);
+            background-size: 400% 400%;
+            animation: gradient-bg 20s ease infinite;
+            position: relative;
+        }
+        @keyframes gradient-bg { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+        
+        /* Ambient Particles Container */
+        #global-particles { position: absolute; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
+        .ambient-particle {
+            position: absolute; border-radius: 50%;
+            background: rgba(255, 255, 255, 0.5);
+            box-shadow: 0 0 12px rgba(255, 255, 255, 0.4);
+            pointer-events: none; animation: float-particle var(--duration) linear infinite;
+        }
+        @keyframes float-particle {
+            0% { transform: translateY(110vh) scale(0.5); opacity: 0; }
+            20% { opacity: 1; }
+            80% { opacity: 1; }
+            100% { transform: translateY(-10vh) scale(1.2); opacity: 0; }
+        }
+
+        /* 3D Glass Panels */
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
+            border: 1px solid rgba(255, 255, 255, 0.6);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2), inset 0 0 0 2px rgba(255, 255, 255, 0.6);
+        }
+        .glass-panel-dark {
+            background: rgba(15, 23, 42, 0.6);
+            backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6), inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+        }
+
+        /* ================= Game Selection Lobby ================= */
+        .portal-card { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); cursor: pointer; }
+        .portal-card:hover { transform: translateY(-15px) scale(1.05); box-shadow: 0 25px 30px -5px rgba(0, 0, 0, 0.4); }
+        .cam-btn-glow { animation: pulse-glow 2s infinite; }
+        @keyframes pulse-glow { 0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); } 50% { box-shadow: 0 0 25px 15px rgba(59, 130, 246, 0); } }
+
+        /* ================= Scene 1: Smart Trashcan (3D Sci-Fi) ================= */
+        .sci-fi-bg { background: radial-gradient(circle at center, rgba(30,41,59,0.7) 0%, rgba(15,23,42,0.9) 100%); position: relative; overflow: hidden; }
+        .trashcan-body { background: linear-gradient(145deg, #e2e8f0 0%, #94a3b8 50%, #64748b 100%); border: 2px solid #475569; box-shadow: inset -10px -10px 30px rgba(0,0,0,0.3), 15px 15px 25px rgba(0,0,0,0.4); }
+        .trashcan-lid-container { transform-origin: 90% 90%; transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1); z-index: 30; }
+        .trashcan-lid-3d { background: linear-gradient(145deg, #f8fafc 0%, #cbd5e1 100%); border-bottom: 5px solid #475569; box-shadow: 0 -5px 15px rgba(255,255,255,0.5) inset, 0 10px 20px rgba(0,0,0,0.3); }
+        .lid-open { transform: rotate(100deg) translate(-5px, -15px); }
+        
+        @keyframes scan-radar { 0% { transform: translateX(-50%) rotateX(75deg) scale(0.8); opacity: 0.8; } 50% { transform: translateX(-50%) rotateX(75deg) scale(1.2); opacity: 0.3; } 100% { transform: translateX(-50%) rotateX(75deg) scale(0.8); opacity: 0.8; } }
+        .holo-ring { position: absolute; bottom: -30px; left: 50%; width: 200px; height: 200px; border: 3px solid #0ea5e9; border-radius: 50%; box-shadow: 0 0 20px #0ea5e9, inset 0 0 30px #0ea5e9; animation: scan-radar 2s infinite ease-in-out; z-index: 0; }
+
+        @keyframes buzz { 0% { transform: translate(0, 0) rotate(0deg); } 25% { transform: translate(15px, -20px) rotate(15deg); } 50% { transform: translate(30px, 10px) rotate(-10deg); } 75% { transform: translate(-15px, -15px) rotate(20deg); } 100% { transform: translate(0, 0) rotate(0deg); } }
+        .fly-buzzing { position: absolute; font-size: 1.8rem; animation: buzz 1.2s infinite linear; z-index: 40; filter: drop-shadow(0 5px 5px rgba(0,0,0,0.5)); }
+        
+        @keyframes toss { 0% { transform: translate(-120px, -150px) rotate(0deg) scale(0); opacity: 0; } 30% { opacity: 1; transform: translate(-60px, -200px) rotate(180deg) scale(1.2); } 100% { transform: translate(0, 80px) rotate(540deg) scale(0.5); opacity: 0; } }
+        .paper-toss { position: absolute; font-size: 2.5rem; opacity: 0; top: 0; left: 50%; pointer-events: none; z-index: 25; filter: drop-shadow(0 10px 10px rgba(0,0,0,0.3)); }
+        .tossing { animation: toss 0.8s ease-in forwards; }
+
+        /* ================= Scene 2: Park Cat Simulator (Tree & Birds) ================= */
+        .stage-park-bg { 
+            background: linear-gradient(to bottom, rgba(56,189,248,0.7) 0%, rgba(125,211,252,0.8) 40%, rgba(134,239,172,0.8) 40%, rgba(34,197,94,0.9) 100%); 
+            position: relative; overflow: hidden; border-bottom: 20px solid rgba(20,83,45,0.9); transition: filter 0.3s ease; 
+        }
+        .park-panic { filter: contrast(1.2) saturate(1.5) brightness(0.85); }
+        
+        /* Dynamic Clouds (Right to Left) */
+        @keyframes float-cloud-rtl { 0% { transform: translateX(80vw); } 100% { transform: translateX(-40vw); } }
+        .cloud-1 { position: absolute; top: 5%; font-size: 5rem; animation: float-cloud-rtl 40s linear infinite; opacity: 0.9; filter: drop-shadow(0 10px 15px rgba(0,0,0,0.1)); }
+        .cloud-2 { position: absolute; top: 15%; font-size: 4rem; animation: float-cloud-rtl 30s linear infinite 10s; opacity: 0.7; filter: drop-shadow(0 10px 15px rgba(0,0,0,0.1)); }
+        .cloud-3 { position: absolute; top: 8%; font-size: 6rem; animation: float-cloud-rtl 45s linear infinite 5s; opacity: 0.85; filter: drop-shadow(0 10px 15px rgba(0,0,0,0.1)); }
+        
+        @keyframes sun-spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .sun { position: absolute; top: 5%; left: 5%; font-size: 6rem; filter: drop-shadow(0 0 30px #fef08a); animation: sun-spin 20s linear infinite; }
+        
+        @keyframes flutter { 0% { transform: translate(0,0) rotate(0deg); } 25% { transform: translate(20px,-20px) rotate(10deg) scale(1.1); } 50% { transform: translate(0,-40px) rotate(-10deg) scale(0.9); } 75% { transform: translate(-20px,-20px) rotate(10deg); } 100% { transform: translate(0,0) rotate(0deg); } }
+        .butterfly { position: absolute; font-size: 2rem; z-index: 25; animation: flutter 5s infinite ease-in-out; left: 60%; bottom: 40%; filter: drop-shadow(0 5px 5px rgba(0,0,0,0.4));}
+
+        @keyframes walk-bounce { 0%, 100% { transform: translateY(0) rotate(0); } 50% { transform: translateY(-20px) rotate(8deg); } }
+        .walking { animation: walk-bounce 0.4s infinite alternate; }
+        
+        @keyframes sleep-breathe { 0%, 100% { transform: scale(1) translateY(0); } 50% { transform: scale(1.05) translateY(-5px); } }
+        .cat-sleeping { animation: sleep-breathe 2.5s infinite ease-in-out; }
+        
+        @keyframes cat-shake { 0% { transform: translate(0, 0) scale(1.2); } 20% { transform: translate(-10px, 8px) scale(1.2) rotate(-5deg); } 40% { transform: translate(10px, -8px) scale(1.2) rotate(5deg); } 60% { transform: translate(-10px, -8px) scale(1.2) rotate(-5deg); } 80% { transform: translate(10px, 8px) scale(1.2) rotate(5deg); } 100% { transform: translate(0, 0) scale(1.2); } }
+        .cat-scratching { animation: cat-shake 0.15s infinite; filter: drop-shadow(0 0 40px rgba(239, 68, 68, 1)); }
+        
+        .scratch-marks { position: absolute; opacity: 0; pointer-events: none; transition: opacity 0.2s; z-index: 50; }
+        .cat-scratching ~ .scratch-marks { opacity: 1; animation: flash 0.2s infinite alternate; }
+        @keyframes flash { from { opacity: 0.5; transform: scale(0.8) rotate(15deg); } to { opacity: 1; transform: scale(1.3) rotate(15deg); } }
+
+        @keyframes alert-pop { 0% { transform: scale(0); opacity: 0; } 50% { transform: scale(1.8); opacity: 1; } 100% { transform: scale(1.2); opacity: 1; } }
+        .alert-mark { font-family: impact, sans-serif; color: #ef4444; font-size: 5rem; text-shadow: 3px 3px 0 #fff, -3px -3px 0 #fff; animation: alert-pop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+
+        /* Fleeing Birds Animations */
+        @keyframes flee-left { 0% { transform: translate(0, 0) scale(1) rotate(0); opacity: 1; } 100% { transform: translate(-400px, -300px) scale(1.5) rotate(-20deg); opacity: 0; } }
+        @keyframes flee-right { 0% { transform: translate(0, 0) scale(1) rotate(0) scaleX(-1); opacity: 1; } 100% { transform: translate(400px, -300px) scale(1.5) rotate(20deg) scaleX(-1); opacity: 0; } }
+        @keyframes flee-up { 0% { transform: translate(0, 0) scale(1) rotate(0); opacity: 1; } 100% { transform: translate(0, -450px) scale(1.5) rotate(10deg); opacity: 0; } }
+        .bird-flee-l { animation: flee-left 0.8s ease-out forwards; }
+        .bird-flee-r { animation: flee-right 0.8s ease-out forwards; }
+        .bird-flee-up { animation: flee-up 0.8s ease-out forwards; }
+
+        /* ================= Scene 3: Epic Cozy Room Inspection ================= */
+        .stage-room-bg { background-color: rgba(15,23,42,0.85); position: relative; overflow: hidden; border-bottom: 20px solid rgba(39,39,42,0.9); }
+        
+        .hallway { background: linear-gradient(to bottom, #334155 0%, #1e293b 65%, #290f01 100%); border-right: 16px solid #451a03; box-shadow: 20px 0 40px rgba(0,0,0,0.9); }
+        
+        .bedroom { background: linear-gradient(to bottom, rgba(254,243,199,0.95) 0%, rgba(253,230,138,0.95) 100%); position: relative; }
+        .rug { position: absolute; bottom: 0; right: 5%; width: 90%; height: 25%; background: #d97706; border-radius: 50% 50% 0 0 / 100% 100% 0 0; border: 5px solid #92400e; border-bottom: none; z-index: 0; box-shadow: inset 0 10px 20px rgba(0,0,0,0.1); }
+        
+        .cozy-window { position: absolute; top: 8%; right: 8%; width: 50%; height: 45%; background: linear-gradient(to bottom, #020617, #1e3a8a); border: 10px solid #f8fafc; border-radius: 12px; box-shadow: inset 0 0 30px rgba(0,0,0,0.9), 0 15px 25px rgba(0,0,0,0.2); overflow: hidden; z-index: 0; }
+        .window-cross-h { position: absolute; width: 100%; height: 8px; background: #f1f5f9; top: 50%; transform: translateY(-50%); box-shadow: 0 5px 10px rgba(0,0,0,0.5); }
+        .window-cross-v { position: absolute; width: 8px; height: 100%; background: #f1f5f9; left: 50%; transform: translateX(-50%); box-shadow: 5px 0 10px rgba(0,0,0,0.5); }
+        .moon { position: absolute; top: 20px; right: 20px; font-size: 4rem; filter: drop-shadow(0 0 20px #fef08a); }
+        
+        @keyframes twinkle-particle { 0%, 100% { opacity: 0.1; transform: scale(0.5); } 50% { opacity: 1; transform: scale(1.5); box-shadow: 0 0 8px 2px rgba(255,255,255,0.8); } }
+        .star-particle { position: absolute; background-color: #fff; border-radius: 50%; animation: twinkle-particle var(--duration) infinite ease-in-out; }
+        
+        @keyframes shooting-star { 0% { transform: translateX(0) translateY(0) rotate(-45deg) scale(1); opacity: 1; } 100% { transform: translateX(-200px) translateY(200px) rotate(-45deg) scale(0); opacity: 0; } }
+        .shooting-star { position: absolute; width: 40px; height: 2px; background: linear-gradient(to right, rgba(255,255,255,0.8), transparent); opacity: 0; animation: shooting-star 5s infinite linear; }
+
+        .curtain { position: absolute; top: 6%; height: 50%; width: 18%; background: linear-gradient(to right, #3730a3, #6366f1, #3730a3); z-index: 1; box-shadow: 5px 5px 15px rgba(0,0,0,0.4); }
+        .curtain-left { right: 54%; border-radius: 0 0 80% 0; border-left: 6px solid #1e1b4b; }
+        .curtain-right { right: 6%; border-radius: 0 0 0 80%; border-right: 6px solid #1e1b4b; }
+
+        @keyframes sweep { 0% { transform: rotate(-10deg); } 100% { transform: rotate(10deg); } }
+        .flashlight { position: absolute; top: 60px; right: -120px; width: 250px; height: 80px; background: linear-gradient(to right, rgba(253, 224, 71, 0.6), transparent); clip-path: polygon(0 30%, 100% 0, 100% 100%, 0 70%); transform-origin: left center; animation: sweep 2s infinite alternate ease-in-out; z-index: 10; opacity: 0; transition: opacity 0.3s; }
+
+        .modern-lamp-container { position: absolute; bottom: 98%; left: 15px; z-index: 45; display: flex; flex-direction: column; align-items: center; transform: scale(0.9); transform-origin: bottom center; }
+        .lamp-head { width: 60px; height: 30px; background: #334155; border-radius: 30px 30px 0 0; transform: rotate(-20deg) translateX(-10px); position: relative; z-index: 3; border-bottom: 4px solid #94a3b8; }
+        .lamp-arm { width: 8px; height: 60px; background: #64748b; transform: rotate(15deg); margin-top: -5px; z-index: 2; }
+        .lamp-base { width: 40px; height: 10px; background: #1e293b; border-radius: 6px 6px 0 0; margin-top: -5px; z-index: 1; }
+        .lamp-glow { position: absolute; top: -100px; left: -100px; width: 250px; height: 250px; background: radial-gradient(circle, rgba(253,224,71,0.6) 0%, rgba(253,224,71,0.15) 50%, transparent 70%); z-index: 40; opacity: 0; transition: opacity 0.2s; pointer-events: none; mix-blend-mode: overlay; border-radius: 50%; }
+        .studying-glow { opacity: 1; }
+
+        .doorway-light { background: linear-gradient(to right, rgba(253, 224, 71, 0.6), transparent); mix-blend-mode: screen; }
+        .dad-shadow { width: 140%; height: 30px; background: rgba(0,0,0,0.8); border-radius: 50%; position: absolute; bottom: -15px; left: -20%; filter: blur(6px); transition: transform 0.15s linear; z-index: 5;}
+        
+        .char-transition { transition: left 0.1s linear, bottom 0.1s linear; }
+        
+        @keyframes panic-scramble { 0% { transform: skewX(0) scale(1); filter: blur(0); } 25% { transform: skewX(-25deg) scale(1.15); filter: blur(3px); } 50% { transform: skewX(25deg) scale(0.85); filter: blur(5px); } 75% { transform: skewX(-15deg) scale(1.1); filter: blur(3px); } 100% { transform: skewX(0) scale(1); filter: blur(0); } }
+        .scrambling { animation: panic-scramble 0.25s cubic-bezier(0.4, 0, 0.2, 1); }
+
+        .prop { transition: all 0.2s cubic-bezier(0.68, -0.55, 0.265, 1.55); position: absolute; }
+        .prop-hidden-down { opacity: 0; transform: translateY(60px) scale(0.5) rotate(45deg); pointer-events: none; }
+        .prop-hidden-up { opacity: 0; transform: translateY(-60px) scale(0.5) rotate(-45deg); pointer-events: none; }
+        .prop-visible { opacity: 1; transform: translateY(0) scale(1) rotate(0); }
+        
+        @keyframes rapid-write { 0% { transform: translateX(0) rotate(-45deg); } 25% { transform: translateX(12px) translateY(-4px) rotate(-60deg); } 50% { transform: translateX(-6px) translateY(4px) rotate(-35deg); } 75% { transform: translateX(15px) translateY(-6px) rotate(-65deg); } 100% { transform: translateX(0) rotate(-45deg); } }
+        .writing-fast { animation: rapid-write 0.08s infinite; filter: drop-shadow(0 0 8px rgba(0,0,0,0.5)); }
+        
+        @keyframes sweat-drop { 0% { opacity: 1; transform: translateY(0) scale(1); } 100% { opacity: 0; transform: translateY(40px) scale(0.5); } }
+        .sweating::after { content: '💦'; position: absolute; right: -20px; top: -10px; font-size: 2.5rem; animation: sweat-drop 0.6s infinite; z-index: 50; }
+
+        @keyframes radar { 0% { transform: scale(0); opacity: 0.8; } 100% { transform: scale(3); opacity: 0; } }
+        .radar-ping::before { content: ''; position: absolute; inset: -10px; border: 3px solid #f59e0b; border-radius: 50%; animation: radar 1s infinite; z-index: 0; }
+
+        @keyframes fly-math { 0% { opacity: 1; transform: translate(0, 0) scale(0.5); } 100% { opacity: 0; transform: translate(-80px, -120px) scale(2.5) rotate(-40deg); } }
+        .math-symbol { position: absolute; color: #1e3a8a; font-weight: 900; font-size: 1.8rem; opacity: 0; pointer-events: none; z-index: 45; text-shadow: 0 0 5px white; }
+        .math-flying { animation: fly-math 0.8s linear infinite; }
+        .math-1 { animation-delay: 0s; right: 30px; bottom: 30px; }
+        .math-2 { animation-delay: 0.25s; right: 10px; bottom: 50px; }
+        .math-3 { animation-delay: 0.5s; right: 50px; bottom: 20px; }
+
+        @keyframes fly-music { 0% { opacity: 1; transform: translate(0, 0) scale(0.5) rotate(0deg); } 100% { opacity: 0; transform: translate(80px, -120px) scale(2) rotate(30deg); } }
+        .music-symbol { position: absolute; color: #d97706; font-size: 2rem; opacity: 0; pointer-events: none; z-index: 45; text-shadow: 0 0 8px #fef08a; }
+        .music-flying { animation: fly-music 1.2s linear infinite; }
+        .music-1 { animation-delay: 0s; left: 30px; bottom: 40px; }
+        .music-2 { animation-delay: 0.4s; left: 10px; bottom: 60px; }
+        .music-3 { animation-delay: 0.8s; left: 50px; bottom: 30px; }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-800 h-screen w-full flex flex-col overflow-hidden relative">
+
+    <!-- ================= START SCREEN (Lobby) ================= -->
+    <div id="start-screen" class="absolute inset-0 z-50 bg-slate-900 flex flex-col items-center justify-center p-6 transition-all duration-700">
+        <div class="absolute inset-0 overflow-hidden pointer-events-none opacity-20">
+            <div class="absolute top-1/4 left-1/4 w-64 h-64 bg-blue-500 rounded-full mix-blend-screen filter blur-[100px] animate-pulse"></div>
+            <div class="absolute bottom-1/4 right-1/4 w-64 h-64 bg-purple-500 rounded-full mix-blend-screen filter blur-[100px] animate-pulse" style="animation-delay: 1s;"></div>
+        </div>
+
+        <div class="text-center z-10 mb-12">
+            <h1 class="text-5xl md:text-7xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-emerald-400 mb-4 tracking-tight drop-shadow-lg">Beyond distance</h1>
+            <p class="text-slate-300 text-xl font-bold tracking-wide">Ultra-HD Palm Tracking · Lightning Fast Response</p>
+        </div>
+
+        <div id="setup-step" class="z-10 flex flex-col items-center">
+            <div class="bg-slate-800/60 p-10 rounded-3xl border border-slate-600 backdrop-blur-md text-center max-w-lg shadow-[0_20px_50px_rgba(0,0,0,0.5)]">
+                <div class="text-7xl mb-6 drop-shadow-xl">📷</div>
+                <h2 class="text-3xl font-black text-white mb-3">Step 1: Connect Your Eyes</h2>
+                <p class="text-slate-400 mb-10 text-lg">We will enable the 1280x720 Ultra-HD precision engine to capture your hand with zero latency.</p>
+                <button id="init-cam-btn" class="cam-btn-glow bg-blue-600 hover:bg-blue-500 text-white font-black text-2xl py-5 px-12 rounded-full shadow-[0_0_30px_rgba(59,130,246,0.6)] transition-all transform hover:scale-105">
+                    Start Ultra-HD Engine
+                </button>
+                <div id="loading-msg" class="hidden text-emerald-400 mt-6 font-bold flex items-center justify-center gap-3 text-xl">
+                    <svg class="animate-spin h-6 w-6" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    Loading Neural Network...
+                </div>
+            </div>
+        </div>
+
+        <div id="game-selection" class="z-10 hidden flex-col items-center w-full max-w-6xl">
+            <h2 class="text-4xl font-black text-white mb-10 drop-shadow-lg">Step 2: Select Cinematic Scene</h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-8 w-full">
+                <div onclick="startGame(0)" class="portal-card bg-gradient-to-br from-slate-800 to-slate-700 p-8 rounded-3xl border border-slate-500 text-center group shadow-2xl">
+                    <div class="text-8xl mb-6 transform group-hover:scale-110 transition-transform drop-shadow-xl">🗑️</div>
+                    <h3 class="text-2xl font-black text-white mb-3">The Invisible Switch</h3>
+                    <p class="text-slate-300 text-base font-medium">1:1 Real scale. Perfect holographic trigger at exactly 10cm.</p>
+                </div>
+                <div onclick="startGame(1)" class="portal-card bg-gradient-to-br from-green-900/60 to-green-800/60 p-8 rounded-3xl border border-green-500/50 text-center group shadow-2xl">
+                    <div class="text-8xl mb-6 transform group-hover:scale-110 transition-transform drop-shadow-xl">🌳🐈</div>
+                    <h3 class="text-2xl font-black text-green-400 mb-3">Proximity Alert</h3>
+                    <p class="text-green-100/80 text-base font-medium">10cm=2.0m. Watch out for the 5 birds in the tree! Don't cross the 2m line!</p>
+                </div>
+                <div onclick="startGame(2)" class="portal-card bg-gradient-to-br from-indigo-900/60 to-indigo-800/60 p-8 rounded-3xl border border-indigo-500/50 text-center group shadow-2xl">
+                    <div class="text-8xl mb-6 transform group-hover:scale-110 transition-transform drop-shadow-xl">🚪📖</div>
+                    <h3 class="text-2xl font-black text-indigo-400 mb-3">The Dad Detector</h3>
+                    <p class="text-indigo-100/80 text-base font-medium">10cm=3.0m. Beautiful starry night. Frantic studying animations!</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- ================= MAIN APP (Active Game Interface) ================= -->
+    <div id="main-app" class="hidden flex-col h-full bg-glassy-app">
+        <!-- Global Ambient Particles -->
+        <div id="global-particles"></div>
+        
+        <header class="glass-panel z-40 px-8 py-4 flex justify-between items-center border-b border-white/40 m-4 rounded-2xl">
+            <div class="flex items-center gap-4">
+                <span id="nav-icon" class="text-3xl drop-shadow-md">🎮</span>
+                <h2 id="nav-title" class="text-2xl font-black text-slate-800 tracking-tight drop-shadow-sm">Game in Progress</h2>
+            </div>
+            <button onclick="backToMenu()" class="glass-panel hover:bg-white/90 text-slate-800 font-bold py-3 px-6 rounded-xl transition-all flex items-center gap-3 text-sm shadow-md hover:shadow-lg">
+                ⬅️ Back to Lobby
+            </button>
+        </header>
+
+        <main class="flex-grow p-4 pt-0 lg:px-6 lg:pb-6 flex flex-col lg:flex-row gap-6 h-full overflow-hidden relative z-10">
+            
+            <!-- Left: Sensor Radar -->
+            <section class="w-full lg:w-1/3 glass-panel rounded-[2.5rem] p-6 flex flex-col h-full shrink-0">
+                <h3 class="text-xl font-black text-slate-800 mb-5 flex items-center gap-3">
+                    <span class="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-sm tracking-wide shadow-md">ULTRA-HD</span> Bounding Box Radar
+                </h3>
+                
+                <div class="video-container shadow-2xl mb-8 border-4 border-slate-700/50 relative bg-black/80">
+                    <canvas class="output_canvas" width="1280" height="720"></canvas>
+                    <video class="input_video" autoplay playsinline></video>
+                    <div id="cam-status-label" class="absolute top-4 left-4 bg-black/60 text-white text-xs font-bold px-3 py-1.5 rounded-md backdrop-blur-md border border-slate-500/50 shadow-lg">
+                        Physical Red Line: 10cm
+                    </div>
+                </div>
+
+                <div class="bg-white/50 backdrop-blur-sm p-6 rounded-[1.5rem] mt-auto border border-white/60 shadow-inner">
+                    <div class="text-slate-700 font-black mb-3 text-sm flex justify-between items-center">
+                        <span>IN-GAME CONVERTED DISTANCE:</span>
+                        <span id="scale-badge" class="bg-white/80 text-purple-800 px-3 py-1 rounded-md text-xs shadow-sm border border-purple-200/50">Scale 1:1</span>
+                    </div>
+                    <div class="flex items-baseline gap-3 mb-6 drop-shadow-sm">
+                        <span id="distance-display" class="text-7xl font-black text-blue-700 font-mono tracking-tighter">30</span>
+                        <span id="distance-unit" class="text-slate-600 font-black text-2xl">cm</span>
+                    </div>
+                    <!-- Progress Bar (Exactly 1/3 scale) -->
+                    <div class="w-full h-6 bg-slate-300/80 rounded-full overflow-hidden relative shadow-[inset_0_3px_8px_rgba(0,0,0,0.2)]">
+                        <!-- Left 33.33% maps exactly to 10/30 (1/3 of the total distance) -->
+                        <div class="absolute top-0 bottom-0 left-[33.33%] w-2 bg-red-500 z-10 shadow-[0_0_12px_red]"></div>
+                        <div id="distance-bar" class="h-full bg-gradient-to-r from-blue-400 to-blue-600 transition-all duration-75" style="width: 100%;"></div>
+                    </div>
+                    <div class="flex justify-between text-sm text-slate-600 mt-3 font-black drop-shadow-sm">
+                        <span id="label-min">0</span>
+                        <span id="label-threshold" class="text-red-600 border-b-2 border-red-400/50 pb-0.5">Threshold (10cm)</span>
+                        <span id="label-max">30</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Right: Interactive Stage -->
+            <section class="w-full lg:w-2/3 glass-panel-dark rounded-[2.5rem] overflow-hidden relative flex flex-col">
+                
+                <!-- STAGE 0: Smart Trashcan (Sci-Fi) -->
+                <div id="stage-0" class="stage-view hidden absolute inset-0 sci-fi-bg flex flex-col items-center justify-center p-8">
+                    <div class="text-center mb-16 z-40">
+                        <h2 class="text-4xl font-black text-white mb-3 drop-shadow-lg tracking-wide">The Invisible Switch</h2>
+                        <p class="text-slate-300 font-medium text-lg drop-shadow-md">Holographic sensing. Opens precisely at 10cm.</p>
+                    </div>
+                    <div id="t-status-light" class="absolute top-8 right-8 w-8 h-8 rounded-full bg-slate-600 shadow-inner transition-all duration-300 border-4 border-slate-400"></div>
+                    
+                    <div class="relative w-56 h-72 mx-auto mt-8">
+                        <div class="holo-ring"></div>
+                        <div id="t-paper" class="paper-toss">🧻</div>
+                        <div id="t-fly" class="fly-buzzing absolute -top-12 -right-8">🪰</div>
+
+                        <div id="trashcan-lid" class="trashcan-lid-container absolute top-0 left-0 w-full h-12">
+                            <div class="trashcan-lid-3d w-full h-full rounded-t-[2rem] flex justify-center items-end pb-3 relative">
+                                <div class="absolute -top-5 w-20 h-5 bg-slate-400 rounded-t-xl shadow-inner border-t-2 border-slate-300"></div>
+                            </div>
+                        </div>
+                        <div class="trashcan-body absolute top-12 left-3 right-3 bottom-0 rounded-b-[2.5rem] overflow-hidden flex justify-evenly px-5 z-20">
+                            <div class="w-3 h-full bg-slate-800/30 shadow-inner"></div>
+                            <div class="w-3 h-full bg-slate-800/30 shadow-inner"></div>
+                            <div class="w-3 h-full bg-slate-800/30 shadow-inner"></div>
+                        </div>
+                    </div>
+                    
+                    <div id="t-status" class="mt-16 text-3xl font-black text-slate-400 tracking-widest bg-slate-800/60 backdrop-blur-md px-8 py-4 rounded-2xl border border-slate-600/50 shadow-xl z-40">Lid Closed</div>
+                </div>
+
+                <!-- STAGE 1: Park Cat Simulator (Giant Tree & 5 Birds) -->
+                <div id="stage-1" class="stage-view hidden absolute inset-0 stage-park-bg flex flex-col overflow-hidden">
+                    <!-- Dynamic Sky -->
+                    <div class="sun">☀️</div>
+                    <div class="cloud-1">☁️</div>
+                    <div class="cloud-2">☁️</div>
+                    <div class="cloud-3">☁️</div>
+                    
+                    <!-- Taller Giant Tree Background & Extended Trunk -->
+                    <div class="absolute bottom-[20%] right-[0%] z-10 pointer-events-none flex flex-col items-center">
+                        <!-- 5 Birds resting on branches -->
+                        <div id="bird-1" class="absolute top-[15%] left-[25%] text-6xl transition-transform z-30">🐦</div>
+                        <div id="bird-2" class="absolute top-[28%] right-[20%] text-5xl transition-transform z-30 scale-x-[-1]">🐦</div>
+                        <div id="bird-3" class="absolute top-[10%] left-[50%] text-4xl transition-transform z-30">🐦</div>
+                        <div id="bird-4" class="absolute top-[22%] left-[60%] text-5xl transition-transform z-30 scale-x-[-1]">🐦</div>
+                        <div id="bird-5" class="absolute top-[35%] left-[30%] text-4xl transition-transform z-30">🐦</div>
+                        
+                        <div class="text-[28rem] leading-none drop-shadow-2xl z-20 relative">🌳</div>
+                        <!-- Extended Trunk -->
+                        <div class="w-16 h-64 bg-gradient-to-r from-[#451a03] to-[#78350f] shadow-[inset_5px_0_20px_rgba(0,0,0,0.8)] z-10 -mt-20 rounded-b-xl relative overflow-hidden">
+                            <div class="absolute w-[2px] h-full bg-black/20 left-4"></div>
+                            <div class="absolute w-[3px] h-full bg-black/10 left-8"></div>
+                            <div class="absolute w-[2px] h-full bg-black/20 left-12"></div>
+                        </div>
+                    </div>
+
+                    <div class="text-center mt-8 z-30 relative bg-white/80 backdrop-blur-xl rounded-2xl mx-auto px-10 py-4 shadow-xl border border-green-300/50">
+                        <h2 class="text-3xl font-black text-green-800 mb-1">Proximity Alert</h2>
+                        <p class="text-green-700 font-bold text-base">The cat's safe distance is 2.0 meters!</p>
+                    </div>
+
+                    <div class="flex-grow relative w-full flex items-end pb-8 z-20">
+                        <!-- Dynamic Walking Person -->
+                        <div id="virtual-person" class="char-transition absolute bottom-6 z-30 drop-shadow-[0_20px_20px_rgba(0,0,0,0.5)] flex flex-col items-center" style="left: 0%;">
+                            <div id="p-emotion" class="text-5xl absolute -top-12 opacity-0 transition-opacity drop-shadow-md">💦</div>
+                            <div class="text-[11rem] transform scale-x-[-1]">🚶‍♂️</div> 
+                            <div class="w-32 h-6 bg-black/30 rounded-full absolute -bottom-2 filter blur-sm"></div>
+                        </div>
+                        
+                        <!-- Fixed Cat Area -->
+                        <div class="absolute bottom-10 right-[15%] flex flex-col items-center z-20">
+                            <!-- Picnic Mat -->
+                            <div class="absolute -bottom-4 w-64 h-12 bg-red-500/80 rounded-[100%] border-4 border-dashed border-white/90 shadow-[0_10px_20px_rgba(0,0,0,0.3)] z-0 transform -rotate-2 backdrop-blur-sm"></div>
+                            
+                            <div id="c-emotion" class="absolute -top-20 opacity-0 z-40"></div>
+                            <div id="cat-body" class="text-[11rem] z-10 cat-sleeping transition-all duration-300 drop-shadow-xl">🐈</div>
+                            <div class="scratch-marks text-red-600 text-[10rem] absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 drop-shadow-lg">彡</div>
+                            <div class="butterfly">🦋</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- STAGE 2: Epic Cozy Room Inspection -->
+                <div id="stage-2" class="stage-view hidden absolute inset-0 stage-room-bg flex flex-col overflow-hidden">
+                    
+                    <div class="absolute top-6 left-6 right-6 flex justify-between items-start z-50">
+                        <div id="r-alert-badge" class="bg-white/90 backdrop-blur-md px-6 py-3 rounded-2xl font-black text-sky-800 shadow-2xl border border-sky-200/50 flex items-center gap-3 transition-all text-lg">
+                            <div class="w-5 h-5 rounded-full bg-emerald-500 shadow-[0_0_15px_#10b981]"></div> Dad is over 3.0m away
+                        </div>
+                        <div id="r-timer-box" class="hidden bg-slate-900/80 backdrop-blur-md text-white px-6 py-3 rounded-2xl font-mono font-bold text-2xl shadow-2xl border border-slate-600/50 radar-ping transition-all">
+                            Observing: <span id="r-timer-val" class="text-yellow-400">3</span>s
+                        </div>
+                    </div>
+
+                    <!-- Cinematic Cross-section Stage -->
+                    <div class="flex-grow flex w-full h-full relative mt-20">
+                        
+                        <!-- Hallway (40% width) -->
+                        <div class="hallway w-[40%] h-full relative flex items-end overflow-hidden pb-10 shadow-[20px_0_40px_rgba(0,0,0,0.9)] z-20">
+                            <!-- Light projection -->
+                            <div id="door-light" class="doorway-light absolute right-0 top-0 bottom-0 w-64 opacity-0 transition-opacity duration-300 z-10"></div>
+                            
+                            <!-- Approaching Dad -->
+                            <div id="parent-wrapper" class="char-transition absolute bottom-8 z-30" style="left: -80%;">
+                                <div id="flashlight" class="flashlight"></div>
+                                <div id="dad-shadow" class="dad-shadow"></div>
+                                <div id="parent-char" class="text-[11rem] drop-shadow-2xl relative z-20">🧔‍♂️</div>
+                            </div>
+                        </div>
+
+                        <!-- Bedroom (60% width - Beautiful Warm Cozy Vibe) -->
+                        <div class="bedroom w-[60%] h-full relative flex flex-col justify-end items-center pb-8 z-10">
+                            
+                            <!-- Large Scenic Window with Dynamic Stars -->
+                            <div class="cozy-window">
+                                <div class="moon">🌙</div>
+                                <!-- Dynamic Particle Stars -->
+                                <div class="star-particle" style="top: 10%; left: 15%; width: 3px; height: 3px; --duration: 2s;"></div>
+                                <div class="star-particle" style="top: 30%; left: 45%; width: 4px; height: 4px; --duration: 3s;"></div>
+                                <div class="star-particle" style="top: 60%; left: 80%; width: 2px; height: 2px; --duration: 1.5s;"></div>
+                                <div class="star-particle" style="top: 75%; left: 20%; width: 3px; height: 3px; --duration: 2.5s;"></div>
+                                <div class="star-particle" style="top: 20%; left: 70%; width: 4px; height: 4px; --duration: 4s;"></div>
+                                <div class="star-particle" style="top: 85%; left: 60%; width: 2px; height: 2px; --duration: 2s;"></div>
+                                <div class="star-particle" style="top: 40%; left: 20%; width: 3px; height: 3px; --duration: 3.5s;"></div>
+                                <div class="star-particle" style="top: 55%; left: 50%; width: 2px; height: 2px; --duration: 1.8s;"></div>
+                                <!-- Shooting stars -->
+                                <div class="shooting-star" style="top: 20%; right: 10%; animation-delay: 2s;"></div>
+                                <div class="shooting-star" style="top: 50%; right: 30%; animation-delay: 7s;"></div>
+                                
+                                <div class="window-cross-h"></div>
+                                <div class="window-cross-v"></div>
+                            </div>
+
+                            <!-- Curtains (Updated to Indigo/Blue-Purple) -->
+                            <div class="curtain curtain-left"></div>
+                            <div class="curtain curtain-right"></div>
+
+                            <!-- Room Decor -->
+                            <div class="absolute top-[30%] left-[8%] text-6xl drop-shadow-xl z-0 transform -rotate-12">🎸</div>
+                            <div class="absolute bottom-[20%] right-[8%] text-[6rem] drop-shadow-xl z-0">🧸</div>
+                            
+                            <div class="rug"></div>
+                            
+                            <!-- Child & Desk System -->
+                            <div id="child-system" class="relative flex flex-col items-center w-[16rem] transition-transform duration-200 z-20 mt-10">
+                                
+                                <!-- Child upper body -->
+                                <div class="relative flex flex-col items-center z-30 mb-2">
+                                    <div id="student-head" class="text-[6.5rem] leading-none relative z-10 drop-shadow-xl">😎</div>
+                                    <div class="w-24 h-16 bg-blue-600 rounded-t-[3rem] -mt-3 shadow-[inset_0_-10px_20px_rgba(0,0,0,0.5)] border-4 border-blue-800"></div>
+                                </div>
+                                
+                                <!-- Desk (Lowered Height) -->
+                                <div class="relative w-full h-[6.5rem] bg-amber-300 rounded-t-xl border-b-[12px] border-amber-900 shadow-[0_-15px_40px_rgba(0,0,0,0.5)] flex justify-center z-40 overflow-visible">
+                                    
+                                    <!-- Custom CSS Desk Lamp (Placed firmly ON the desk top left) -->
+                                    <div class="modern-lamp-container">
+                                        <div class="lamp-head"></div>
+                                        <div class="lamp-arm"></div>
+                                        <div class="lamp-base"></div>
+                                        <div id="lamp-glow" class="lamp-glow"></div>
+                                    </div>
+
+                                    <!-- Flying Math Equations -->
+                                    <div id="math-layer" class="hidden">
+                                        <div class="math-symbol math-1">∑</div>
+                                        <div class="math-symbol math-2">π</div>
+                                        <div class="math-symbol math-3">x²</div>
+                                    </div>
+
+                                    <!-- Flying Music Notes (Humming a tune) -->
+                                    <div id="music-layer" class="hidden">
+                                        <div class="music-symbol music-1">🎵</div>
+                                        <div class="music-symbol music-2">🎶</div>
+                                        <div class="music-symbol music-3">🎵</div>
+                                    </div>
+
+                                    <!-- State A: Reading Comic -->
+                                    <div id="state-play" class="prop prop-visible absolute flex flex-col items-center bottom-2">
+                                        <div class="text-[5rem] drop-shadow-2xl transform -rotate-12">🦸‍♂️</div>
+                                        <div class="bg-red-600 text-white text-[10px] font-black px-2 py-1 rounded shadow-xl transform rotate-6 border-2 border-white">Comic</div>
+                                    </div>
+
+                                    <!-- State B: Frantic Studying -->
+                                    <div id="state-study" class="prop prop-hidden-down absolute flex items-center justify-center gap-1 bottom-2 w-full px-2">
+                                        <div class="text-[5rem] drop-shadow-2xl">📖</div>
+                                        <div id="pencil-tool" class="text-[3.5rem] drop-shadow-xl origin-bottom-left absolute right-6 bottom-2">✏️</div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Desk Legs -->
+                                <div class="flex justify-between w-52 z-20">
+                                    <div class="w-4 h-24 bg-amber-950 rounded-b-md shadow-[inset_3px_0_8px_rgba(0,0,0,0.8)]"></div>
+                                    <div class="w-4 h-24 bg-amber-950 rounded-b-md shadow-[inset_3px_0_8px_rgba(0,0,0,0.8)]"></div>
+                                </div>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+
+            </section>
+        </main>
+    </div>
+
+    <!-- JS Logic -->
+    <script>
+        // --- Generate Global Particles ---
+        const particleContainer = document.getElementById('global-particles');
+        for(let i=0; i<30; i++) {
+            let p = document.createElement('div');
+            p.className = 'ambient-particle';
+            p.style.left = Math.random() * 100 + 'vw';
+            p.style.width = p.style.height = (Math.random() * 8 + 3) + 'px';
+            p.style.setProperty('--duration', (Math.random() * 15 + 10) + 's');
+            p.style.animationDelay = (Math.random() * -20) + 's';
+            particleContainer.appendChild(p);
+        }
+
+        // --- Core Variables ---
+        let isSystemRunning = false;
+        let smoothedDistance = 30; // Max distance scaled down to 30cm to center 10cm threshold!
+        const PHYSICAL_THRESHOLD = 10; 
+        const MAX_DISTANCE = 30; // 30cm max makes 10cm exactly 1/3 of the scale
+        let currentScene = 0; 
+        let cameraObj = null;
+        let handLostFrames = 0;
+
+        // --- DOM Elements ---
+        const startScreen = document.getElementById('start-screen');
+        const setupStep = document.getElementById('setup-step');
+        const gameSelection = document.getElementById('game-selection');
+        const mainApp = document.getElementById('main-app');
+        const initCamBtn = document.getElementById('init-cam-btn');
+        const loadingMsg = document.getElementById('loading-msg');
+        const navIcon = document.getElementById('nav-icon');
+        const navTitle = document.getElementById('nav-title');
+        
+        const videoElement = document.getElementsByClassName('input_video')[0];
+        const canvasElement = document.getElementsByClassName('output_canvas')[0];
+        const canvasCtx = canvasElement.getContext('2d');
+        const distDisplay = document.getElementById('distance-display');
+        const distUnit = document.getElementById('distance-unit');
+        const distBar = document.getElementById('distance-bar');
+        const scaleBadge = document.getElementById('scale-badge');
+        const lblMin = document.getElementById('label-min');
+        const lblThreshold = document.getElementById('label-threshold');
+        const lblMax = document.getElementById('label-max');
+
+        // Stage 0
+        const tLid = document.getElementById('trashcan-lid');
+        const tStatus = document.getElementById('t-status');
+        const tLight = document.getElementById('t-status-light');
+        const tPaper = document.getElementById('t-paper');
+        const tFly = document.getElementById('t-fly');
+        let trashState = 'IDLE'; 
+
+        // Stage 1
+        const vPerson = document.getElementById('virtual-person');
+        const cBody = document.getElementById('cat-body');
+        const cEmotion = document.getElementById('c-emotion');
+        const pEmotion = document.getElementById('p-emotion');
+        const bird1 = document.getElementById('bird-1');
+        const bird2 = document.getElementById('bird-2');
+        const bird3 = document.getElementById('bird-3');
+        const bird4 = document.getElementById('bird-4');
+        const bird5 = document.getElementById('bird-5');
+        let lastPersonPos = 0;
+        let birdsFled = false;
+
+        // Stage 2
+        const pWrapper = document.getElementById('parent-wrapper');
+        const pChar = document.getElementById('parent-char');
+        const dadShadow = document.getElementById('dad-shadow');
+        const childSystem = document.getElementById('child-system');
+        const sHead = document.getElementById('student-head');
+        const stPlay = document.getElementById('state-play');
+        const stStudy = document.getElementById('state-study');
+        const pencil = document.getElementById('pencil-tool');
+        const rBadge = document.getElementById('r-alert-badge');
+        const rTimerBox = document.getElementById('r-timer-box');
+        const rTimerVal = document.getElementById('r-timer-val');
+        const doorLight = document.getElementById('door-light');
+        const flashlight = document.getElementById('flashlight');
+        const lampGlow = document.getElementById('lamp-glow');
+        const mathLayer = document.getElementById('math-layer');
+        const musicLayer = document.getElementById('music-layer');
+        
+        let roomState = 'PLAYING'; 
+        let safetyTimer = null;
+
+        // ==========================================
+        // Step 1: Init ULTRA-HD AI Engine
+        // ==========================================
+        const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+        // Supreme sensitivity & reliability
+        hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.3, minTrackingConfidence: 0.3 });
+        hands.onResults(onResults);
+
+        initCamBtn.addEventListener('click', () => {
+            initCamBtn.classList.add('hidden');
+            loadingMsg.classList.remove('hidden');
+
+            cameraObj = new Camera(videoElement, {
+                onFrame: async () => { await hands.send({image: videoElement}); },
+                width: 1280, height: 720
+            });
+
+            cameraObj.start().then(() => {
+                isSystemRunning = true;
+                setupStep.classList.add('hidden');
+                gameSelection.classList.remove('hidden');
+                gameSelection.classList.add('flex');
+            }).catch(err => {
+                alert("Cannot access camera! Please ensure browser camera permissions are granted.");
+                initCamBtn.classList.remove('hidden');
+                loadingMsg.classList.add('hidden');
+            });
+        });
+
+        // ==========================================
+        // Step 2: Scene Selection
+        // ==========================================
+        function startGame(index) {
+            currentScene = index;
+            startScreen.classList.add('opacity-0', 'pointer-events-none');
+            setTimeout(() => {
+                startScreen.classList.add('hidden');
+                mainApp.classList.remove('hidden');
+                mainApp.classList.add('flex');
+            }, 700);
+
+            document.querySelectorAll('.stage-view').forEach(el => el.classList.add('hidden'));
+            document.getElementById(`stage-${index}`).classList.remove('hidden');
+
+            if(index === 0) { 
+                navIcon.innerText = '🗑️'; navTitle.innerText = 'The Invisible Switch'; 
+                scaleBadge.innerText = "Scale 1:1";
+                scaleBadge.className = "bg-white/80 text-slate-800 px-3 py-1 rounded-md text-xs font-black shadow-sm";
+                lblMin.innerText = "0cm"; lblThreshold.innerText = "Threshold (10cm)"; lblMax.innerText = "30cm";
+            }
+            if(index === 1) { 
+                navIcon.innerText = '🌳🐈'; navTitle.innerText = 'Proximity Alert'; 
+                scaleBadge.innerText = "Scale Mapping 10cm = 2.0m";
+                scaleBadge.className = "bg-green-100/90 text-green-800 px-3 py-1 rounded-md text-xs font-black border border-green-400/50 shadow-sm";
+                lblMin.innerText = "0.0m"; lblThreshold.innerText = "Danger Zone (2.0m)"; lblMax.innerText = "6.0m";
+            }
+            if(index === 2) { 
+                navIcon.innerText = '🚪📖'; navTitle.innerText = 'The Dad Detector'; 
+                scaleBadge.innerText = "Scale Mapping 10cm = 3.0m";
+                scaleBadge.className = "bg-indigo-100/90 text-indigo-800 px-3 py-1 rounded-md text-xs font-black border border-indigo-400/50 shadow-sm";
+                lblMin.innerText = "0.0m"; lblThreshold.innerText = "Warning Line (3.0m)"; lblMax.innerText = "9.0m";
+            }
+            
+            resetScenes();
+        }
+
+        function backToMenu() {
+            mainApp.classList.add('hidden');
+            mainApp.classList.remove('flex');
+            startScreen.classList.remove('hidden', 'opacity-0', 'pointer-events-none');
+            resetScenes();
+        }
+
+        function resetScenes() {
+            // Room Reset
+            roomState = 'PLAYING';
+            clearInterval(safetyTimer);
+            rTimerBox.classList.add('hidden');
+            sHead.innerText = "😎";
+            sHead.classList.remove('sweating');
+            childSystem.classList.remove('scrambling');
+            stPlay.className = "prop prop-visible absolute flex flex-col items-center bottom-2";
+            stStudy.className = "prop prop-hidden-down absolute flex items-center justify-center gap-1 bottom-2 w-full px-2";
+            pencil.classList.remove('writing-fast');
+            doorLight.style.opacity = '0';
+            flashlight.style.opacity = '0';
+            lampGlow.classList.remove('studying-glow');
+            rBadge.innerHTML = `<div class="w-5 h-5 rounded-full bg-emerald-500 shadow-[0_0_15px_#10b981]"></div> Dad is over 3.0m away`;
+            rBadge.className = "bg-white/90 backdrop-blur-md px-6 py-3 rounded-2xl font-black text-sky-800 shadow-2xl border border-sky-200/50 flex items-center gap-3 transition-all text-lg";
+            
+            // Math & Music Logic
+            mathLayer.classList.add('hidden');
+            document.querySelectorAll('.math-symbol').forEach(el => el.classList.remove('math-flying'));
+            musicLayer.classList.remove('hidden');
+            document.querySelectorAll('.music-symbol').forEach(el => el.classList.add('music-flying'));
+            
+            // Cat Reset
+            cBody.className = "text-[11rem] z-10 cat-sleeping transition-all duration-300 drop-shadow-xl";
+            cBody.innerText = "🐈";
+            cEmotion.className = "absolute -top-20 opacity-0 z-40";
+            pEmotion.style.opacity = '0';
+            document.getElementById('stage-1').classList.remove('park-panic');
+            birdsFled = false;
+            bird1.className = "absolute top-[15%] left-[25%] text-6xl transition-transform z-30";
+            bird2.className = "absolute top-[28%] right-[20%] text-5xl transition-transform z-30 scale-x-[-1]";
+            bird3.className = "absolute top-[10%] left-[50%] text-4xl transition-transform z-30";
+            bird4.className = "absolute top-[22%] left-[60%] text-5xl transition-transform z-30 scale-x-[-1]";
+            bird5.className = "absolute top-[35%] left-[30%] text-4xl transition-transform z-30";
+
+            // Trash Reset
+            tFly.style.display = 'block';
+            tPaper.classList.remove('tossing');
+            tLid.classList.remove('lid-open');
+        }
+
+
+        // ==========================================
+        // Core Tracking Algorithm (Recalibrated for 30cm Max & Extreme Sensitivity)
+        // ==========================================
+        function onResults(results) {
+            if (!isSystemRunning) return;
+
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+            
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                handLostFrames = 0; 
+                const landmarks = results.multiHandLandmarks[0];
+                drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: '#3b82f6', lineWidth: 6});
+                drawLandmarks(canvasCtx, landmarks, {color: '#ffffff', lineWidth: 3, radius: 5});
+
+                let xMin = 1, yMin = 1, xMax = 0, yMax = 0;
+                for(let i=0; i<landmarks.length; i++) {
+                    xMin = Math.min(xMin, landmarks[i].x);
+                    yMin = Math.min(yMin, landmarks[i].y);
+                    xMax = Math.max(xMax, landmarks[i].x);
+                    yMax = Math.max(yMax, landmarks[i].y);
+                }
+                const boxDiag = Math.sqrt(Math.pow(xMax - xMin, 2) + Math.pow(yMax - yMin, 2));
+
+                // NEW CALIBRATION FOR 30cm MAX
+                let rawDist = 40 - (boxDiag * 50);
+                if (rawDist < 0) rawDist = 0;
+                if (rawDist > MAX_DISTANCE) rawDist = MAX_DISTANCE;
+
+                // Ultra-smooth tracking (85% new data for near zero latency!)
+                smoothedDistance = (smoothedDistance * 0.15) + (rawDist * 0.85); 
+            } else {
+                handLostFrames++;
+                // Quick drop-off if hand leaves screen
+                if(handLostFrames > 2) {
+                    smoothedDistance = (smoothedDistance * 0.8) + (MAX_DISTANCE * 0.2); 
+                }
+            }
+            canvasCtx.restore();
+
+            if (!mainApp.classList.contains('hidden')) {
+                executeGameLogic(smoothedDistance);
+            }
+        }
+
+        // ==========================================
+        // Game Logic Router
+        // ==========================================
+        function executeGameLogic(physicalDist) {
+            if (physicalDist > MAX_DISTANCE) physicalDist = MAX_DISTANCE;
+            if (physicalDist < 0) physicalDist = 0;
+            
+            const barWidth = (physicalDist / MAX_DISTANCE) * 100;
+            distBar.style.width = `${barWidth}%`;
+            distBar.className = physicalDist < PHYSICAL_THRESHOLD ? "h-full bg-red-500 shadow-[0_0_20px_red] transition-all duration-75" : "h-full bg-gradient-to-r from-blue-400 to-blue-600 transition-all duration-75";
+
+            if (currentScene === 0) {
+                distDisplay.innerText = Math.round(physicalDist);
+                distUnit.innerText = "cm";
+                runTrashcan(physicalDist);
+            } 
+            else if (currentScene === 1) {
+                let displayMeters = (physicalDist / PHYSICAL_THRESHOLD) * 2.0;
+                distDisplay.innerText = displayMeters.toFixed(1);
+                distUnit.innerText = "m";
+                runCat(physicalDist);
+            } 
+            else if (currentScene === 2) {
+                let displayMeters = (physicalDist / PHYSICAL_THRESHOLD) * 3.0;
+                distDisplay.innerText = displayMeters.toFixed(1);
+                distUnit.innerText = "m";
+                runRoom(physicalDist);
+            }
+        }
+
+        // --- Game 1: Trashcan ---
+        function runTrashcan(dist) {
+            if (trashState === 'IDLE') {
+                if (dist < PHYSICAL_THRESHOLD) {
+                    trashState = 'OPENING';
+                    tFly.style.display = 'none'; 
+                    tLid.classList.add('lid-open');
+                    
+                    tPaper.classList.remove('tossing'); 
+                    void tPaper.offsetWidth; 
+                    tPaper.classList.add('tossing');
+
+                    tStatus.innerText = "Auto Opened 🔓";
+                    tStatus.className = "mt-16 text-3xl font-black text-emerald-400 tracking-widest bg-emerald-900/60 backdrop-blur-md px-8 py-4 rounded-2xl border border-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.4)] z-40";
+                    tLight.className = "absolute top-8 right-8 w-8 h-8 rounded-full bg-emerald-500 shadow-[0_0_30px_#10b981] border-4 border-emerald-200";
+                    setTimeout(() => { trashState = 'IDLE'; }, 2000);
+                } else {
+                    tFly.style.display = 'block'; 
+                    tLid.classList.remove('lid-open');
+                    tStatus.innerText = "Lid Closed";
+                    tStatus.className = "mt-16 text-3xl font-black text-slate-300 tracking-widest bg-slate-800/60 backdrop-blur-md px-8 py-4 rounded-2xl border border-slate-600/50 shadow-xl z-40";
+                    tLight.className = "absolute top-8 right-8 w-8 h-8 rounded-full bg-slate-600 shadow-inner transition-all duration-300 border-4 border-slate-400";
+                }
+            }
+        }
+
+        // --- Game 2: Park Cat Simulator (with 5 Fleeing Birds) ---
+        function runCat(dist) {
+            const targetPos = ((MAX_DISTANCE - dist) / MAX_DISTANCE) * 60;
+            vPerson.style.left = `${targetPos}%`;
+            
+            if (Math.abs(targetPos - lastPersonPos) > 1.5) { vPerson.classList.add('walking'); } 
+            else { vPerson.classList.remove('walking'); }
+            lastPersonPos = targetPos;
+
+            if (dist < PHYSICAL_THRESHOLD) { 
+                // Cat Freaking Out
+                cBody.className = "text-[14rem] z-10 cat-scratching transition-all";
+                cBody.innerText = "🙀";
+                pEmotion.style.opacity = '1'; 
+                document.getElementById('stage-1').classList.add('park-panic'); 
+                
+                if (cEmotion.className.indexOf('alert-mark') === -1) {
+                    cEmotion.className = "alert-mark absolute -top-20 z-40";
+                    cEmotion.innerText = "❗";
+                }
+
+                // 5 Birds scattering everywhere!
+                if (!birdsFled) {
+                    birdsFled = true;
+                    bird1.className = "bird-flee-l absolute top-[15%] left-[25%] text-6xl z-30";
+                    bird2.className = "bird-flee-r absolute top-[28%] right-[20%] text-5xl z-30 scale-x-[-1]";
+                    bird3.className = "bird-flee-up absolute top-[10%] left-[50%] text-4xl z-30";
+                    bird4.className = "bird-flee-r absolute top-[22%] left-[60%] text-5xl z-30 scale-x-[-1]";
+                    bird5.className = "bird-flee-l absolute top-[35%] left-[30%] text-4xl z-30";
+                }
+            } else if (dist < 16) { 
+                // Cat Alert
+                cBody.className = "text-[12rem] z-10 transition-all transform scale-110 drop-shadow-xl";
+                cBody.innerText = "😼";
+                cEmotion.className = "absolute -top-20 opacity-0 z-40";
+                pEmotion.style.opacity = '0';
+                document.getElementById('stage-1').classList.remove('park-panic');
+                
+                // Birds return to tree when it's safe
+                if (birdsFled && dist > 14) {
+                    birdsFled = false;
+                    bird1.className = "absolute top-[15%] left-[25%] text-6xl transition-transform z-30";
+                    bird2.className = "absolute top-[28%] right-[20%] text-5xl transition-transform z-30 scale-x-[-1]";
+                    bird3.className = "absolute top-[10%] left-[50%] text-4xl transition-transform z-30";
+                    bird4.className = "absolute top-[22%] left-[60%] text-5xl transition-transform z-30 scale-x-[-1]";
+                    bird5.className = "absolute top-[35%] left-[30%] text-4xl transition-transform z-30";
+                }
+            } else {
+                // Cat Sleeping
+                cBody.className = "text-[11rem] z-10 cat-sleeping transition-all duration-300 drop-shadow-xl";
+                cBody.innerText = "🐈";
+                cEmotion.className = "absolute -top-20 opacity-0 z-40";
+                pEmotion.style.opacity = '0';
+                document.getElementById('stage-1').classList.remove('park-panic');
+            }
+        }
+
+        // --- Game 3: Epic Room Inspection ---
+        function runRoom(dist) {
+            let parentPos = -80 + ((MAX_DISTANCE - dist) / MAX_DISTANCE) * 170;
+            if(parentPos > 90) parentPos = 90; 
+            pWrapper.style.left = `${parentPos}%`;
+            
+            if (dist < 27 && dist > 3) { 
+                pChar.classList.add('walking'); 
+            } else { 
+                pChar.classList.remove('walking'); 
+            }
+            
+            let shadowScale = 1 + ((MAX_DISTANCE - dist) / MAX_DISTANCE) * 1.5;
+            dadShadow.style.transform = `scale(${shadowScale})`;
+
+            if (dist < PHYSICAL_THRESHOLD) {
+                doorLight.style.opacity = '1'; 
+                flashlight.style.opacity = '1'; 
+
+                if (safetyTimer) { clearInterval(safetyTimer); safetyTimer = null; rTimerBox.classList.add('hidden'); }
+                
+                if (roomState !== 'PANIC') {
+                    roomState = 'PANIC';
+                    
+                    rBadge.innerHTML = `<div class="w-5 h-5 rounded-full bg-red-500 shadow-[0_0_20px_#dc2626] animate-pulse"></div> ALERT: Dad crossed the 3m red line!`;
+                    rBadge.className = "bg-red-50/90 backdrop-blur-md px-6 py-3 rounded-2xl font-black text-red-800 shadow-2xl border border-red-300/50 flex items-center gap-3 transition-all transform scale-110 z-50 text-lg";
+                    
+                    sHead.innerText = "🥵";
+                    sHead.classList.add('sweating');
+                    childSystem.classList.add('scrambling'); 
+                    
+                    stPlay.classList.replace('prop-visible', 'prop-hidden-down');
+                    stStudy.classList.replace('prop-hidden-down', 'prop-visible');
+                    stStudy.classList.replace('prop-hidden-up', 'prop-visible'); 
+                    
+                    // Desk Lamp Turns ON
+                    lampGlow.classList.add('studying-glow');
+
+                    // Math ON, Music OFF
+                    musicLayer.classList.add('hidden');
+                    document.querySelectorAll('.music-symbol').forEach(el => el.classList.remove('music-flying'));
+
+                    setTimeout(() => { 
+                        pencil.classList.add('writing-fast'); 
+                        mathLayer.classList.remove('hidden');
+                        document.querySelectorAll('.math-symbol').forEach(el => el.classList.add('math-flying'));
+                    }, 100);
+                    setTimeout(() => { childSystem.classList.remove('scrambling'); }, 250);
+                }
+                
+            } else {
+                doorLight.style.opacity = '0'; 
+                flashlight.style.opacity = '0';
+
+                if (roomState === 'PANIC') {
+                    roomState = 'WAITING';
+                    
+                    pencil.classList.remove('writing-fast');
+                    mathLayer.classList.add('hidden');
+                    document.querySelectorAll('.math-symbol').forEach(el => el.classList.remove('math-flying'));
+                    
+                    // Desk Lamp Turns OFF
+                    lampGlow.classList.remove('studying-glow');
+
+                    sHead.innerText = "🫣";
+                    sHead.classList.remove('sweating');
+                    
+                    rBadge.innerHTML = `<div class="w-5 h-5 rounded-full bg-yellow-400 shadow-[0_0_15px_#eab308]"></div> Dad temporarily retreated...`;
+                    rBadge.className = "bg-yellow-50/90 backdrop-blur-md px-6 py-3 rounded-2xl font-black text-yellow-800 shadow-2xl border border-yellow-300/50 flex items-center gap-3 transition-all z-50 text-lg";
+                    
+                    rTimerBox.classList.remove('hidden');
+                    let timeLeft = 3;
+                    rTimerVal.innerText = timeLeft;
+                    
+                    safetyTimer = setInterval(() => {
+                        timeLeft--;
+                        rTimerVal.innerText = timeLeft;
+                        if (timeLeft <= 0) {
+                            clearInterval(safetyTimer);
+                            safetyTimer = null;
+                            rTimerBox.classList.add('hidden');
+                            roomState = 'PLAYING';
+                            
+                            rBadge.innerHTML = `<div class="w-5 h-5 rounded-full bg-emerald-500 shadow-[0_0_15px_#10b981]"></div> Dad is over 3.0m away`;
+                            rBadge.className = "bg-white/90 backdrop-blur-md px-6 py-3 rounded-2xl font-black text-sky-800 shadow-2xl border border-sky-200/50 flex items-center gap-3 transition-all z-50 text-lg";
+                            
+                            sHead.innerText = "😎";
+                            stStudy.classList.replace('prop-visible', 'prop-hidden-up'); 
+                            stPlay.classList.replace('prop-hidden-down', 'prop-visible'); 
+                            
+                            // Music ON
+                            musicLayer.classList.remove('hidden');
+                            document.querySelectorAll('.music-symbol').forEach(el => el.classList.add('music-flying'));
+                        }
+                    }, 1000);
+                }
+            }
+        }
+
+    </script>
+</body>
+</html>
